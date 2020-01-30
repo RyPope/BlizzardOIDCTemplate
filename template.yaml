@@ -1,0 +1,141 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Cognito Resources for Your Service.
+
+Resources:
+  LambdaForCloudFormation:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: LambdaForCloudFormation
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          -
+            Effect: Allow
+            Action: 'sts:AssumeRole'
+            Principal:
+              Service: lambda.amazonaws.com
+      Policies:
+        -
+          PolicyName: WriteCloudWatchLogs
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement: 
+              -
+                Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: 'arn:aws:logs:*:*:*'
+        -
+          PolicyName: UpdateUserPoolClient
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement: 
+              -
+                Effect: Allow
+                Action: 'cognito-idp:UpdateUserPoolClient'
+                Resource: 'arn:aws:cognito-idp:*:*:userpool/*'
+        -
+          PolicyName: ManageUserPoolDomain
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement: 
+              -
+                Effect: Allow
+                Action: 'cognito-idp:CreateUserPoolDomain'
+                Resource: 'arn:aws:cognito-idp:*:*:userpool/*'
+              -
+                Effect: Allow
+                Action: 'cognito-idp:DeleteUserPoolDomain'
+                Resource: 'arn:aws:cognito-idp:*:*:userpool/*'
+              -
+                Effect: Allow
+                Action: 'cognito-idp:DescribeUserPoolDomain'
+                Resource: '*'
+        -
+          PolicyName: InvokeLambdaFunction
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement: 
+              -
+                Effect: Allow
+                Action: 'lambda:InvokeFunction'
+                Resource: 'arn:aws:lambda:*:*:function:*'
+  CloudFormationCognitoUserPoolClientSettings:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: nodejs12.x
+      Handler: CloudFormationCognitoUserPoolClientSettings.default
+      CodeUri: ./dist/CloudFormationCognitoUserPoolClientSettings
+      Role: !GetAtt LambdaForCloudFormation.Arn
+  CloudFormationCognitoUserPoolDomain:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: nodejs12.x
+      Handler: CloudFormationCognitoUserPoolDomain.default
+      CodeUri: ./dist/CloudFormationCognitoUserPoolDomain
+      Role: !GetAtt LambdaForCloudFormation.Arn
+  CognitoUserPoolIdentityProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Properties: 
+      ProviderName: Blizzard
+      AttributeMapping:
+        username: sub
+        name: battletag
+        email: email
+      ProviderDetails:
+        client_id: <Client ID>
+        client_secret: <Client Secret>
+        authorize_scopes: openid wow.profile
+        oidc_issuer: https://us.battle.net/oauth
+        attributes_request_method: POST
+      ProviderType: OIDC
+      UserPoolId: 
+        Ref: UserPool
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: UserPool
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: UserPoolClient
+      GenerateSecret: false
+      UserPoolId: !Ref UserPool
+  UserPoolClientSettings:
+    Type: Custom::CognitoUserPoolClientSettings
+    Properties:
+      ServiceToken: !GetAtt CloudFormationCognitoUserPoolClientSettings.Arn
+      UserPoolId: !Ref UserPool
+      UserPoolClientId: !Ref UserPoolClient
+      SupportedIdentityProviders:
+        - Blizzard
+      CallbackURL: 'https://<Callback URL>/authorize'
+      LogoutURL: 'https://<Logout URL>/signOut'
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+  UserPoolDomain:
+    Type: Custom::CognitoUserPoolDomain
+    Properties:
+      ServiceToken: !GetAtt CloudFormationCognitoUserPoolDomain.Arn
+      UserPoolId: !Ref UserPool
+      Domain: 'domain'
+
+Outputs:
+  UserPoolId:
+    Value: !Ref UserPool
+    Export:
+      Name: "ServiceCognito-UserPool::Id"
+  UserPoolArn:
+    Value: !GetAtt UserPool.Arn
+    Export:
+      Name: "ServiceCognito-UserPool::Arn"
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
+    Export:
+      Name: "ServiceCognito-UserPoolClient::Id"
